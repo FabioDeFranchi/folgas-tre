@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>Folgas TRE - Gestor Oficial</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    .card-shadow { box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
+    .bg-gradient-header { background: linear-gradient(135deg, #007AFF 0%, #0056b3 100%); }
+    .flatpickr-calendar { margin: 0 auto; border: none; box-shadow: none; font-size: 14px; }
+    .flatpickr-day.selected { background: #007AFF !important; border-color: #007AFF !important; }
+    /* Previne zoom automático no iPhone ao clicar em inputs */
+    input, select { font-size: 16px !important; }
+  </style>
+</head>
+<body class="bg-[#F2F2F7] min-h-screen antialiased text-gray-900 pb-10">
+
+  <header class="bg-gradient-header px-6 py-10 text-white shadow-lg">
+    <div class="max-w-xl mx-auto flex justify-between items-center">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">Folgas TRE</h1>
+        <p class="text-blue-100 text-xs opacity-90 uppercase tracking-widest font-semibold">Controle de Créditos</p>
+      </div>
+      <div class="text-right">
+        <span class="block text-[10px] uppercase tracking-wider opacity-75">Saldo Disponível</span>
+        <span id="saldo-total" class="text-5xl font-black">0d</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="p-4 max-w-xl mx-auto -mt-8 space-y-6">
+    
+    <div class="grid grid-cols-2 gap-4">
+      <button onclick="openModal('add-trabalho')" class="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center gap-3 active:scale-95 transition-transform">
+        <div class="bg-blue-100 p-3 rounded-full text-blue-600">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></svg>
+        </div>
+        <span class="font-bold text-sm text-blue-900 text-center">Adicionar Trabalho</span>
+      </button>
+      <button onclick="openModal('add-uso')" class="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 flex flex-col items-center gap-3 active:scale-95 transition-transform">
+        <div class="bg-green-100 p-3 rounded-full text-green-600">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+        </div>
+        <span class="font-bold text-sm text-green-900 text-center">Marcar Folgas</span>
+      </button>
+    </div>
+
+    <section class="space-y-3">
+      <div class="flex justify-between items-end px-2">
+        <h2 class="text-xs uppercase font-bold tracking-widest text-gray-500">Meus Créditos (Folgas)</h2>
+        <div class="flex gap-4">
+            <button onclick="exportData()" class="text-xs text-blue-600 font-bold hover:underline">Exportar</button>
+            <label class="text-xs text-blue-600 font-bold hover:underline cursor-pointer">
+                Importar <input type="file" id="importFile" class="hidden" accept=".json">
+            </label>
+        </div>
+      </div>
+      <div id="lista-trabalhos" class="space-y-3"></div>
+    </section>
+
+    <section class="space-y-3 pt-4 border-t border-gray-200">
+      <h2 class="text-xs uppercase font-bold tracking-widest text-gray-500 px-2 text-center">Histórico de Uso Efetivo</h2>
+      <div id="lista-usos" class="space-y-2"></div>
+    </section>
+
+    <div class="p-4 bg-amber-50 border border-amber-100 rounded-2xl text-[11px] text-amber-800 leading-relaxed shadow-sm">
+      <strong>Nota Técnica:</strong> O sistema utiliza a regra <strong>FIFO</strong> (First-In, First-Out): ao marcar uma data de folga, o crédito mais antigo é consumido primeiro para evitar a prescrição de 5 anos.
+    </div>
+  </main>
+
+  <div id="modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-4">
+    <div class="bg-white w-full max-w-md rounded-t-[32px] sm:rounded-3xl overflow-hidden shadow-2xl">
+      <div class="p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h3 id="modal-title" class="text-xl font-extrabold text-gray-900"></h3>
+          <button onclick="closeModal()" class="bg-gray-100 text-gray-500 w-8 h-8 rounded-full flex items-center justify-center font-bold">&times;</button>
+        </div>
+        <div id="modal-content" class="min-h-[200px]"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/pt.js"></script>
+
+  <script>
+    // --- ESTADO ---
+    let db = JSON.parse(localStorage.getItem('tre_v2_data')) || { trabalhos: [], usos: [] };
+    let tempDates = [];
+
+    function save() {
+      localStorage.setItem('tre_v2_data', JSON.stringify(db));
+      render();
+    }
+
+    // --- LÓGICA DE SALDO (FIFO) ---
+    function calculateBalance() {
+      const trabalhosSorted = [...db.trabalhos].sort((a, b) => new Date(a.date) - new Date(b.date));
+      let totalUsos = db.usos.length;
+
+      return trabalhosSorted.map(t => {
+        const totalGerado = 2;
+        const usadoDesteTrabalho = Math.min(totalGerado, totalUsos);
+        totalUsos -= usadoDesteTrabalho;
+        return { ...t, saldo: totalGerado - usadoDesteTrabalho };
+      });
+    }
+
+    // --- RENDERIZAÇÃO ---
+    function render() {
+      const trabalhosComSaldo = calculateBalance();
+      const saldoTotal = trabalhosComSaldo.reduce((acc, t) => acc + t.saldo, 0);
+      document.getElementById('saldo-total').textContent = `${saldoTotal}d`;
+      
+      // Lista de Créditos
+      const containerTrab = document.getElementById('lista-trabalhos');
+      containerTrab.innerHTML = trabalhosComSaldo.length ? '' : '<div class="bg-white p-8 rounded-2xl text-center text-gray-400 italic border border-dashed">Nenhum trabalho cadastrado.</div>';
+
+      trabalhosComSaldo.slice().reverse().forEach(t => {
+        const anos = (new Date() - new Date(t.date)) / (1000 * 60 * 60 * 24 * 365);
+        const card = document.createElement('div');
+        card.className = `bg-white p-4 rounded-2xl border ${anos > 4.5 ? 'border-red-200 bg-red-50' : 'border-white'} card-shadow flex justify-between items-center`;
+        card.innerHTML = `
+          <div class="flex-1">
+            <span class="text-[10px] uppercase font-black text-blue-500">${t.type}</span>
+            <h4 class="font-bold text-gray-900">${new Date(t.date).toLocaleDateString('pt-BR')}</h4>
+            <button onclick="deleteTrabalho('${t.id}')" class="text-[10px] text-gray-400 hover:text-red-500 font-bold uppercase mt-1">Excluir</button>
+          </div>
+          <div class="text-right bg-gray-50 px-4 py-2 rounded-xl">
+            <span class="text-2xl font-black ${t.saldo > 0 ? 'text-gray-900' : 'text-gray-300'}">${t.saldo}/2</span>
+            <span class="text-[10px] block text-gray-400 font-bold uppercase tracking-tighter">Dias Restantes</span>
+          </div>
+        `;
+        containerTrab.appendChild(card);
+      });
+
+      // Lista de Usos Efetivos
+      const containerUsos = document.getElementById('lista-usos');
+      containerUsos.innerHTML = db.usos.length ? '' : '<p class="text-gray-400 text-xs italic text-center py-4">Nenhuma folga utilizada no calendário.</p>';
+      
+      [...db.usos].sort((a,b) => new Date(b.date) - new Date(a.date)).forEach(u => {
+        const item = document.createElement('div');
+        item.className = "flex justify-between items-center bg-white p-3 rounded-xl border border-gray-100 text-sm shadow-sm";
+        item.innerHTML = `
+          <div class="text-gray-700">
+            <span class="font-bold text-blue-600">Folga:</span> ${new Date(u.date).toLocaleDateString('pt-BR', {weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric'})}
+          </div>
+          <button onclick="deleteUso('${u.id}')" class="text-red-400 hover:text-red-600 font-bold text-[10px] uppercase">Remover</button>
+        `;
+        containerUsos.appendChild(item);
+      });
+    }
+
+    // --- CONTROLE DE MODAL ---
+    function openModal(mode) {
+      const m = document.getElementById('modal');
+      const title = document.getElementById('modal-title');
+      const content = document.getElementById('modal-content');
+      tempDates = [];
+      
+      if(mode === 'add-trabalho') {
+        title.textContent = "Data do Trabalho";
+        content.innerHTML = `
+          <div id="calendar-inline" class="mb-4"></div>
+          <select id="reg-type" class="w-full p-4 bg-gray-100 rounded-2xl border-none font-bold text-gray-700 mb-4">
+            <option>1º Turno</option><option>2º Turno</option><option>Treinamento</option><option>Outros</option>
+          </select>
+          <button onclick="saveNewTrabalho()" class="w-full bg-blue-600 text-white p-5 rounded-2xl font-black shadow-lg active:scale-95 transition-transform uppercase">Salvar Dias</button>
+        `;
+        flatpickr("#calendar-inline", { inline: true, mode: "multiple", locale: "pt", onChange: (dates) => { tempDates = dates; } });
+      } else if (mode === 'add-uso') {
+        title.textContent = "Quando será a folga?";
+        content.innerHTML = `
+          <div id="calendar-uso" class="mb-4"></div>
+          <p class="text-[11px] text-gray-500 mb-4 px-2 text-center italic">Selecione no calendário as datas exatas que você vai folgar.</p>
+          <button onclick="saveNewUso()" class="w-full bg-green-600 text-white p-5 rounded-2xl font-black shadow-lg active:scale-95 transition-transform uppercase">Registrar Dias de Folga</button>
+        `;
+        flatpickr("#calendar-uso", { inline: true, mode: "multiple", locale: "pt", onChange: (dates) => { tempDates = dates; } });
+      }
+      m.classList.remove('hidden');
+    }
+
+    // --- AÇÕES ---
+    function saveNewTrabalho() {
+      if(!tempDates.length) return alert("Selecione os dias trabalhados.");
+      tempDates.forEach(d => {
+        db.trabalhos.push({ id: 't_'+Date.now()+Math.random(), date: d.toISOString(), type: document.getElementById('reg-type').value });
+      });
+      closeModal(); save();
+    }
+
+    function saveNewUso() {
+      if(!tempDates.length) return alert("Selecione os dias de folga.");
+      const saldoAtual = calculateBalance().reduce((acc, t) => acc + t.saldo, 0);
+      if(tempDates.length > saldoAtual) return alert(`Saldo insuficiente! Você tem apenas ${saldoAtual} dias.`);
+
+      tempDates.forEach(d => {
+        // Evita duplicar folga no mesmo dia
+        const jaExiste = db.usos.some(u => new Date(u.date).toDateString() === d.toDateString());
+        if(!jaExiste) {
+            db.usos.push({ id: 'u_'+Date.now()+Math.random(), date: d.toISOString() });
+        }
+      });
+      closeModal(); save();
+    }
+
+    function deleteTrabalho(id) { if(confirm("Remover este crédito?")) { db.trabalhos = db.trabalhos.filter(t => t.id !== id); save(); } }
+    function deleteUso(id) { if(confirm("Remover este registro de folga?")) { db.usos = db.usos.filter(u => u.id !== id); save(); } }
+
+    function closeModal() { document.getElementById('modal').classList.add('hidden'); tempDates = []; }
+
+    // --- BACKUP ---
+    function exportData() {
+      const blob = new Blob([JSON.stringify(db)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `backup_folgas_tre_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+    }
+
+    document.getElementById('importFile').addEventListener('change', function(e) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const data = JSON.parse(event.target.result);
+          if(data.trabalhos && data.usos) { db = data; save(); alert("Dados restaurados com sucesso!"); }
+        } catch(e) { alert("Arquivo inválido."); }
+      };
+      reader.readAsText(e.target.files[0]);
+    });
+
+    // Início
+    render();
+  </script>
+</body>
+</html>
